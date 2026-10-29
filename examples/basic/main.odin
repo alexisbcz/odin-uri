@@ -1,27 +1,62 @@
-// Example basic shows the smallest useful mylib program. Run it with `odin run examples/basic`.
+// Example basic parses, resolves, normalizes and edits URIs. Run it with `odin run examples/basic`.
 package main
 
-import mylib "../.."
+import uri "../.."
 import "core:fmt"
 import "core:os"
-import "core:strings"
 
 main :: proc() {
-	line, err := mylib.repeat("na", 8)
+	base, err := uri.parse("https://alice@Example.COM:443/docs/guide/intro.html?lang=en&lang=fr#top")
 	if err != nil {
-		fmt.eprintln("repeat failed:", err)
+		fmt.eprintln("parse failed:", err)
 		os.exit(1)
 	}
-	defer delete(line)
-	fmt.println(line, "batman")
+	defer uri.destroy(&base)
+	fmt.println("scheme:", base.scheme)
+	fmt.println("user:  ", base.user)
+	fmt.println("host:  ", base.host)
+	fmt.println("port:  ", base.port.? or_else 0)
+	fmt.println("path:  ", base.path)
 
-	tally: mylib.Tally
-	mylib.tally_init(&tally)
-	defer mylib.tally_destroy(&tally)
-
-	text := "the cat saw the dog"
-	for word in strings.fields_iterator(&text) {
-		_ = mylib.tally_add(&tally, word)
+	// Repeated keys keep their order.
+	q, qerr := uri.parse_query(base.raw_query)
+	if qerr != nil {
+		fmt.eprintln("bad query:", qerr)
+		os.exit(1)
 	}
-	fmt.println("the:", mylib.tally_count(&tally, "the"))
+	defer uri.query_destroy(&q)
+	langs, _ := uri.query_get_all(q, "lang")
+	defer delete(langs)
+	fmt.println("langs: ", langs)
+
+	// Resolve a relative link the way a browser would.
+	link, _ := uri.parse("../api/./v2?page=2")
+	defer uri.destroy(&link)
+	target, rerr := uri.resolve(base, link)
+	if rerr != nil {
+		fmt.eprintln("resolve failed:", rerr)
+		os.exit(1)
+	}
+	defer uri.destroy(&target)
+	resolved, _ := uri.to_string(target)
+	defer delete(resolved)
+	fmt.println("resolved:  ", resolved)
+
+	// Normalize to compare equivalent URIs as plain strings.
+	normal, _ := uri.normalize(target)
+	defer uri.destroy(&normal)
+	normalized, _ := uri.to_string(normal)
+	defer delete(normalized)
+	fmt.println("normalized:", normalized)
+
+	// Build a query in order and escape it for the wire.
+	out: uri.Query
+	defer uri.query_destroy(&out)
+	uri.query_add(&out, "q", "odin lang")
+	uri.query_add(&out, "tag", "a&b")
+	uri.query_add(&out, "tag", "c")
+	uri.query_set(&out, "q", "odin + uri")
+	encoded, _ := uri.query_encode(out)
+	defer delete(encoded)
+	fmt.println("query:     ", encoded)
 }
