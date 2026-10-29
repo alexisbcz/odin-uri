@@ -80,3 +80,28 @@ test_normalize_makes_equivalent_uris_equal :: proc(t: ^testing.T) {
 	expect_normalized(t, "HTTP://www.Example.com:80/%7euser/./docs/../index.html", "http://www.example.com/~user/index.html", alloc)
 	expect_normalized(t, "http://www.example.com/~user/index.html", "http://www.example.com/~user/index.html", alloc)
 }
+
+@(test)
+test_normalize_frees_everything_when_allocation_fails :: proc(t: ^testing.T) {
+	for budget in 0 ..< 4 {
+		lc: Leak_Check
+		f := Fail_After{tracked(t, &lc), budget}
+		alloc := fail_after_allocator(&f)
+		u := uri.URI {
+			scheme = "HTTP",
+			host   = "Example.COM",
+			port   = 80,
+			path   = "/a/./b/%7e",
+		}
+		n, err := uri.normalize(u, alloc)
+		if err == nil {
+			s, serr := uri.to_string(n, context.allocator)
+			testing.expect_value(t, serr, nil)
+			testing.expect_value(t, s, "http://example.com/a/b/~")
+			delete(s)
+		} else {
+			testing.expect_value(t, err, uri.Error(.Out_Of_Memory))
+		}
+		uri.destroy(&n)
+	}
+}

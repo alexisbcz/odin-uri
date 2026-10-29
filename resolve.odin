@@ -113,7 +113,11 @@ Returns:
 normalize :: proc(u: URI, allocator := context.allocator) -> (out: URI, err: Error) {
 	total := len(u.scheme) + len(u.user) + len(u.password) + len(u.host) + len(u.path) + len(u.raw_query) + len(u.fragment) + 1
 	a := assembler_make(total, allocator) or_return
-	scratch := make([dynamic]byte, 0, len(u.path), allocator) or_return
+	scratch, scratch_err := make([dynamic]byte, 0, len(u.path), allocator)
+	if scratch_err != nil {
+		delete(a.buf)
+		return {}, scratch_err
+	}
 	defer delete(scratch)
 
 	out = u
