@@ -195,3 +195,22 @@ test_query_parse_encode_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, perr, nil)
 	testing.expect_value(t, u.raw_query, s)
 }
+
+@(test)
+test_query_procs_free_everything_when_allocation_fails :: proc(t: ^testing.T) {
+	for budget in 0 ..< 12 {
+		lc: Leak_Check
+		f := Fail_After{tracked(t, &lc), budget}
+		alloc := fail_after_allocator(&f)
+		q, err := uri.parse_query("a=1&b=%41&a=x+y&c", alloc)
+		if err == nil {
+			_ = uri.query_add(&q, "d", "4")
+			_ = uri.query_set(&q, "a", "z")
+			encoded, encode_err := uri.query_encode(q, alloc)
+			if encode_err == nil {
+				delete(encoded, alloc)
+			}
+		}
+		uri.query_destroy(&q)
+	}
+}

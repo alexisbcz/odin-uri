@@ -76,3 +76,71 @@ expect_normalized :: proc(t: ^testing.T, input, want: string, alloc: runtime.All
 	defer delete(s, alloc)
 	testing.expectf(t, s == want, "normalize(%q): got %q, want %q", input, s, want, loc = loc)
 }
+
+/*
+Scribble overwrites every block it frees with 0xAA before passing the free on
+to `backing`. A procedure that reads memory after freeing it then sees garbage
+instead of the old bytes, so use-after-free bugs show up as wrong results.
+*/
+Scribble :: struct {
+	backing: runtime.Allocator,
+}
+
+scribble_allocator :: proc(s: ^Scribble) -> runtime.Allocator {
+	return {scribble_proc, s}
+}
+
+@(private = "file")
+scribble_proc :: proc(
+	data: rawptr,
+	mode: runtime.Allocator_Mode,
+	size, alignment: int,
+	old_memory: rawptr,
+	old_size: int,
+	loc := #caller_location,
+) -> (
+	[]byte,
+	runtime.Allocator_Error,
+) {
+	s := (^Scribble)(data)
+	if mode == .Free && old_memory != nil && old_size > 0 {
+		mem.set(old_memory, 0xAA, old_size)
+	}
+	return s.backing.procedure(s.backing.data, mode, size, alignment, old_memory, old_size, loc)
+}
+
+/*
+Fail_After lets the first `left` allocations through to `backing` and fails
+every later one with `.Out_Of_Memory`. Frees always go through.
+*/
+Fail_After :: struct {
+	backing: runtime.Allocator,
+	left:    int,
+}
+
+fail_after_allocator :: proc(f: ^Fail_After) -> runtime.Allocator {
+	return {fail_after_proc, f}
+}
+
+@(private = "file")
+fail_after_proc :: proc(
+	data: rawptr,
+	mode: runtime.Allocator_Mode,
+	size, alignment: int,
+	old_memory: rawptr,
+	old_size: int,
+	loc := #caller_location,
+) -> (
+	[]byte,
+	runtime.Allocator_Error,
+) {
+	f := (^Fail_After)(data)
+	#partial switch mode {
+	case .Alloc, .Alloc_Non_Zeroed, .Resize, .Resize_Non_Zeroed:
+		if f.left <= 0 {
+			return nil, .Out_Of_Memory
+		}
+		f.left -= 1
+	}
+	return f.backing.procedure(f.backing.data, mode, size, alignment, old_memory, old_size, loc)
+}

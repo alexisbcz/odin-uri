@@ -177,3 +177,19 @@ test_remove_dot_segments_examples :: proc(t: ^testing.T) {
 		delete(got, alloc)
 	}
 }
+
+@(test)
+test_resolve_frees_everything_when_allocation_fails :: proc(t: ^testing.T) {
+	for budget in 0 ..< 10 {
+		lc: Leak_Check
+		f := Fail_After{tracked(t, &lc), budget}
+		alloc := fail_after_allocator(&f)
+		got, err := uri.resolve_string("http://a/b/c/d;p?q", "../g/./h?y#s", alloc)
+		if err == nil {
+			testing.expect_value(t, got, "http://a/b/g/h?y#s")
+		} else {
+			testing.expect_value(t, err, uri.Error(.Out_Of_Memory))
+		}
+		delete(got, alloc)
+	}
+}
