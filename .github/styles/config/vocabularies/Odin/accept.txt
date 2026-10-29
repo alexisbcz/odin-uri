@@ -77,3 +77,15 @@ WebAssembly
 WebSocket(s)?
 Xcode
 XCTest
+uri_tests
+(?i)uris?
+IPv4
+IPv6
+IPvFuture
+userinfo
+[Uu]nescape(s|d)?
+[Uu]nreserved
+[Pp]ercent-escape(s)?
+[Nn]ormalize(s|d)?
+urlencoded
+fuzz(ing)?
