@@ -197,6 +197,30 @@ test_query_parse_encode_round_trip :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_query_del_with_key_owned_by_query :: proc(t: ^testing.T) {
+	lc: Leak_Check
+	s := Scribble{tracked(t, &lc)}
+	alloc := scribble_allocator(&s)
+	q, _ := uri.parse_query("a=1&b=2&a=3&a=4", alloc)
+	defer uri.query_destroy(&q)
+	// The key is the string stored in the first pair, which query_del frees.
+	uri.query_del(&q, q[0][0])
+	expect_pairs(t, q, {{"b", "2"}})
+}
+
+@(test)
+test_query_set_with_key_owned_by_query :: proc(t: ^testing.T) {
+	lc: Leak_Check
+	s := Scribble{tracked(t, &lc)}
+	alloc := scribble_allocator(&s)
+	q, _ := uri.parse_query("a=1&a=2&b=3&a=4", alloc)
+	defer uri.query_destroy(&q)
+	// The key is the string stored in the last pair, which query_set removes.
+	testing.expect_value(t, uri.query_set(&q, q[3][0], q[3][1]), nil)
+	expect_pairs(t, q, {{"a", "4"}, {"b", "3"}})
+}
+
+@(test)
 test_query_procs_free_everything_when_allocation_fails :: proc(t: ^testing.T) {
 	for budget in 0 ..< 12 {
 		lc: Leak_Check

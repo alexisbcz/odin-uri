@@ -154,7 +154,7 @@ query_add :: proc(q: ^Query, key, value: string) -> (err: Error) {
 /*
 query_set makes `value` the only value of `key`. It replaces the value of the
 first pair with that key, in place, and removes the later ones. When no pair
-has the key, it appends one.
+has the key, it appends one. `key` and `value` may be strings owned by `q`.
 
 Returns:
 - err: an allocator error; `q` is unchanged on error.
@@ -171,32 +171,53 @@ query_set :: proc(q: ^Query, key, value: string) -> (err: Error) {
 		return query_add(q, key, value)
 	}
 	v := strings.clone(value, q.allocator) or_return
-	delete(q[first][1], q.allocator)
+	old_value := q[first][1]
 	q[first][1] = v
-	for i := len(q) - 1; i > first; i -= 1 {
-		if q[i][0] == key {
-			delete(q[i][0], q.allocator)
-			delete(q[i][1], q.allocator)
-			ordered_remove(q, i)
-		}
-	}
+	// Free the removed pairs only after the last comparison, because `key` may point into one of them.
+	kept := query_partition(q, first + 1, key)
+	query_free_from(q, kept)
+	delete(old_value, q.allocator)
 	return nil
 }
 
-// query_del removes and frees every pair of `q` whose key equals `key`, keeping the order of the rest.
+/*
+query_del removes and frees every pair of `q` whose key equals `key`, keeping
+the order of the rest. `key` may be a string owned by `q`.
+*/
 query_del :: proc(q: ^Query, key: string) {
-	kept := 0
-	for i in 0 ..< len(q) {
-		pair := q[i]
-		if pair[0] == key {
-			delete(pair[0], q.allocator)
-			delete(pair[1], q.allocator)
+	kept := query_partition(q, 0, key)
+	query_free_from(q, kept)
+}
+
+/*
+query_partition moves the pairs of `q[from:]` whose key differs from `key`
+forward, in order, and the matching pairs behind them. It frees nothing, so
+`key` stays valid even when it points into `q`.
+
+Returns:
+- kept: the index of the first matching pair after the move.
+*/
+@(private)
+query_partition :: proc(q: ^Query, from: int, key: string) -> (kept: int) {
+	kept = from
+	for i in from ..< len(q) {
+		if q[i][0] == key {
 			continue
 		}
-		q[kept] = pair
+		q[kept], q[i] = q[i], q[kept]
 		kept += 1
 	}
-	resize(q, kept)
+	return kept
+}
+
+// query_free_from frees the keys and values of `q[from:]` and shrinks `q` to `from` pairs.
+@(private)
+query_free_from :: proc(q: ^Query, from: int) {
+	for pair in q[from:] {
+		delete(pair[0], q.allocator)
+		delete(pair[1], q.allocator)
+	}
+	resize(q, from)
 }
 
 /*
